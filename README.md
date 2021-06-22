@@ -13,7 +13,7 @@ Jira: https://confluence.atlassian.com/adminjiraserver/getting-started-with-jira
 Como hacer consultas a traves de query para las integraciónes (Job en jenkins, etc)
 
 ## JKE-App-1
-Se realizara la integración de este repositorio de github con UCV
+Se realizara la integración de este repositorio de github con UCV, parece que existe un error por las issues en los estados **"In Progress"** y **"In Review"** no son vistas por el VS
 
 ## Personas
 Roberto Chiabra Valera (Arquitecto de la cuenta IBM):
