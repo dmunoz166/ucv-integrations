@@ -3,6 +3,18 @@
   "integrations": [
     {
       "name":"JKE Jira"
+    },
+    {
+      "name":"JKE GitHub App1"
+    }
+  ],
+  "linkRules": [
+    {
+      "fromIntegrationName": "JKE GitHub App1",
+      "toIntegrationName": "JKE Jira",
+      "fromField": "pr.name",
+      "toField": "issue.id",
+      "pattern": "([A-Z]+-[0-9]+)"
     }
   ],
   "phases": [
