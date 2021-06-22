@@ -1,0 +1,61 @@
+{
+  "tenantId": "5ade13625558f2c6688d15ce",
+  "integrations": [
+    {
+      "name":"JKE Jira"
+    }
+  ],
+  "phases": [
+    {
+      "name": "Planning",
+      "stages": [
+        {
+          "name": "Backlog",
+          "query": "issue.status=Backlog"
+        },
+        {
+          "name": "Selected For Development",
+          "query": "issue.status='Selected for Development' AND (pr.status!=open AND pr.status!=closed)"
+        }
+      ]
+    },
+    {
+      "name": "Development",
+      "stages": [
+        {
+          "name": "In Progress",
+          "query": "(issue.status='In Progress' OR pr.status=open) AND issue.status!='In Review'"
+        },
+        {
+          "name": "In Review",
+          "query": "issue.status='In Review' AND pr.status=open"
+        },
+        {
+          "name": "Merged",
+          "query": "issue.status=Merged OR pr.status=closed AND build.status!=success"
+        },
+        {
+          "name": "Build",
+          "query": "build.status=success AND deployment.env!=DEV"
+        }
+      ]
+    },
+    {
+      "name": "Deployment",
+      "stages": [
+        {
+          "name": "DEV",
+          "query": "deployment.env=DEV AND deployment.env!=QA"
+        },
+        {
+          "name": "QA",
+          "query": "deployment.env=QA AND deployment.env!=PROD"
+        },
+        {
+          "name": "PROD",
+          "query": "deployment.env=PROD"
+        }
+      ]
+    }
+  ]
+}

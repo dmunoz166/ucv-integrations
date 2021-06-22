@@ -1,0 +1,442 @@
+version: '2.1'
+x-logging: &ref_0
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '2'
+x-restart-policy:
+  &restart-policy
+  always
+services:
+  velocity-router:
+    restart: *restart-policy
+    image: 'bitnami/nginx:1.19'
+    logging: *ref_0
+    volumes:
+      - './conf/nginx/nginx.conf:/opt/bitnami/nginx/conf/nginx.conf.template'
+      - >-
+        ./conf/ssl/server.crt:/path/to/nginx-persistence/nginx/conf/bitnami/certs/server.crt
+      - >-
+        ./conf/ssl/server.key:/path/to/nginx-persistence/nginx/conf/bitnami/certs/server.key
+    ports:
+      - '${NGINX_PORT}:8443'
+    environment:
+      - 'NGINX_PROTOCOL=${NGINX_PROTOCOL}'
+      - 'NGINX_HOST=${NGINX_HOST}'
+      - 'NGINX_PORT=${NGINX_PORT}'
+    command: |
+      /bin/bash -c "\
+        cp -f /opt/bitnami/nginx/conf/nginx.conf.template /opt/bitnami/nginx/conf/nginx.conf; \
+        sed -i \"s/\$${NGINX_HOST}/$NGINX_HOST/g\" /opt/bitnami/nginx/conf/nginx.conf; \
+        cat /opt/bitnami/nginx/conf/nginx.conf; \
+        /opt/bitnami/scripts/nginx/run.sh"
+    links:
+      - release-events-ui
+      - release-events-api
+      - security-api
+      - continuous-release-ui
+      - multi-app-pipeline-api
+      - application-api
+      - continuous-release-consumer
+      - reporting-consumer
+  database:
+    restart: *restart-policy
+    image: 'mongo:4.0'
+    logging: *ref_0
+    command: mongod --quiet --logpath=/dev/null
+    volumes:
+      - 'mongodb:/data/db'
+  reporting-ui:
+    restart: *restart-policy
+    image: 'urbancode/velocity-se-reporting-ui:1.5.0.105'
+    logging: *ref_0
+    depends_on:
+      security-api:
+        condition: service_healthy
+    links:
+      - database
+    environment:
+      - 'ROOT_URL=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/reports'
+      - 'APP_HOME=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}'
+      - >-
+        DDP_DEFAULT_CONNECTION_URL=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/reports
+      - PORT=3000
+      - 'MONGO_URL=mongodb://database:27017'
+      - MONGO_DB=reporting
+      - 'ENCRYPT_KEY=${CIPHER_KEY}'
+      - ADMIN_PASSWORD=admin
+      - DISABLE_SSL=true
+      - COMPOSE_VERSION=1.0.0
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - 'JWT_HMAC_KEY=${HMAC_KEY}'
+      - >-
+        SECURITY_AUTH_URL=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/security-api/auth
+      - 'SECURITY_API_AUTH_TOKEN=${API_TOKEN}'
+      - VELOCITY_VERSION=2.3.6
+      - |
+        METEOR_SETTINGS=
+        {
+          "public": {}
+        }
+  reporting-consumer:
+    image: 'urbancode/velocity-se-reporting-consumer:2.3.6.1'
+    user: root
+    restart: *restart-policy
+    logging: *ref_0
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - '-f'
+        - 'http://localhost:6004/ping'
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    links:
+      - database
+      - rabbitnode1
+    environment:
+      - 'MONGO_URL=mongodb://database:27017'
+      - MONGO_DB=reporting
+      - 'ENCRYPT_KEY=${CIPHER_KEY}'
+      - >-
+        CONSUMER_URL=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/reporting-consumer
+      - 'INTERNAL_CONSUMER_URL=http://reporting-consumer:6004'
+      - 'BEARER_TOKEN=${API_TOKEN}'
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - RABBITMQ_HOST=rabbitnode1
+      - RABBITMQ_PORT=5672
+      - 'RABBITMQ_USERNAME=${RABBITMQ_USER}'
+      - 'RABBITMQ_PASSWORD=${RABBITMQ_PASS}'
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - 'GRAPHQL_URL=http://release-events-api:8080'
+      - 'SECURITY_API_URL=http://security-api:3911'
+      - 'DOCKER_SOCKET_PATH=${DOCKER_SOCKET_PATH}'
+      - 'DOCKER_VOLUME_HOST_PATH=${DOCKER_VOLUME_HOST_PATH}'
+      - 'DOCKER_VOLUME_INTERNAL_PATH=${DOCKER_VOLUME_INTERNAL_PATH}'
+      - 'COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}'
+      - 'APP_API_URL=http://application-api:3499'
+      - >-
+        PLUGINS_INDEX_URL=https://raw.githubusercontent.com/UrbanCode/velocity-plugins-index/master
+    volumes:
+      - '${DOCKER_SOCKET_PATH}:/var/run/docker.sock'
+      - '${DOCKER_VOLUME_HOST_PATH}:/reporting-consumer/uploads'
+  continuous-release-consumer:
+    image: 'urbancode/velocity-se-continuous-release-consumer:2.3.6.1'
+    restart: *restart-policy
+    logging: *ref_0
+    links:
+      - rabbitnode1
+    environment:
+      - NODE_ENV=onprem
+      - PORT=3411
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - 'API_TOKEN=${API_TOKEN}'
+      - 'CIPHER_KEY=${CIPHER_KEY}'
+      - 'HMAC_KEY=${HMAC_KEY}'
+      - RABBITMQ_HOST=rabbitnode1
+      - RABBITMQ_PORT=5672
+      - 'RABBITMQ_USERNAME=${RABBITMQ_USER}'
+      - 'RABBITMQ_PASSWORD=${RABBITMQ_PASS}'
+  application-api:
+    image: 'urbancode/velocity-se-application-api:2.3.6.1'
+    restart: *restart-policy
+    logging: *ref_0
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - '-f'
+        - 'http://localhost:3499/api/v1/status'
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    links:
+      - database
+      - security-api
+      - rabbitnode1
+    environment:
+      - DB_TYPE=mongo
+      - 'MONGO_URL=mongodb://database:27017'
+      - MONGO_DB=application-api
+      - PORT=3499
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - 'BEARER_TOKEN=${API_TOKEN}'
+      - 'GRAPHQL_URL=http://release-events-api:8080'
+      - RABBITMQ_HOST=rabbitnode1
+      - RABBITMQ_PORT=5672
+      - 'RABBITMQ_USERNAME=${RABBITMQ_USER}'
+      - 'RABBITMQ_PASSWORD=${RABBITMQ_PASS}'
+      - 'SECURITY_API_URL=http://security-api:3911'
+  release-events-ui:
+    image: 'urbancode/velocity-se-release-events-ui:2.3.6.1'
+    restart: *restart-policy
+    logging: *ref_0
+    depends_on:
+      release-events-api:
+        condition: service_started
+    environment:
+      - NODE_ENV=production
+      - PORT=3010
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - >-
+        release_events_api__host=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/release-events-api
+      - >-
+        security_api__host=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/security-api
+      - >-
+        reporting_consumer__host=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/reporting-consumer
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - version=2.3.6
+  release-events-api:
+    image: 'urbancode/velocity-se-release-events-api:2.3.6.1'
+    restart: *restart-policy
+    logging: *ref_0
+    depends_on:
+      security-api:
+        condition: service_healthy
+      multi-app-pipeline-api:
+        condition: service_healthy
+      application-api:
+        condition: service_healthy
+    volumes:
+      - './conf/swidtag/:/opt/dist/swidtag/'
+    links:
+      - database
+      - rabbitnode1
+      - continuous-release-ui
+      - security-api
+      - reporting-consumer
+    environment:
+      - PORT=8080
+      - MONGO_DB=release-events
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - 'MONGO_URL=mongodb://database:27017'
+      - 'SECURITY_API_URL=http://security-api:3911'
+      - 'SECURITY_API_AUTH_TOKEN=${API_TOKEN}'
+      - 'JWT_CIPHER_KEY=${CIPHER_KEY}'
+      - 'JWT_HMAC_KEY=${HMAC_KEY}'
+      - 'DEPLOY_PLAN_API_URL=http://continuous-release-ui:3000/deploymentPlans'
+      - 'DEPLOY_PLAN_API_CIPHER_KEY=${CIPHER_KEY}'
+      - 'DEPLOY_PLAN_API_HMAC_KEY=${HMAC_KEY}'
+      - 'BEARER_TOKEN=${API_TOKEN}'
+      - RABBITMQ_HOST=rabbitnode1
+      - RABBITMQ_PORT=5672
+      - 'RABBITMQ_USERNAME=${RABBITMQ_USER}'
+      - 'RABBITMQ_PASSWORD=${RABBITMQ_PASS}'
+      - 'MAP_API_URL=http://multi-app-pipeline-api:9090'
+      - 'MAP_API_PATH=${MAP_API_PATH}'
+      - 'MAP_API_TOKEN=${API_TOKEN}'
+      - 'REPORTING_CONSUMER_API_URL=http://reporting-consumer:6004'
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - 'REPORTING_UI_URL=http://reporting-ui:3000/reports'
+      - 'APP_API_URL=http://application-api:3499'
+  security-api:
+    image: 'urbancode/velocity-se-security-api:2.3.6.1'
+    restart: *restart-policy
+    logging: *ref_0
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - '-f'
+        - 'http://localhost:3911/api/v1/status'
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      - rcl-web-client
+    links:
+      - database
+      - rcl-web-client
+      - rabbitnode1
+    environment:
+      - PORT=3911
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - 'MONGO_URL=mongodb://database:27017/security'
+      - MONGO_DB=security
+      - 'BEARER_TOKEN=${API_TOKEN}'
+      - 'SECURITY_AUTH_SECRET=${HMAC_KEY}'
+      - LOGICAL_APP_NAME=security-api
+      - BUILD_PREFIX=master
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - 'ACCESS_KEY=${ACCESS_KEY}'
+      - 'RCL_WEB_CLIENT_URL=http://rcl-web-client:4567'
+      - RABBITMQ_HOST=rabbitnode1
+      - RABBITMQ_PORT=5672
+      - 'RABBITMQ_USERNAME=${RABBITMQ_USER}'
+      - 'RABBITMQ_PASSWORD=${RABBITMQ_PASS}'
+      - CONTAINER_PLATFORM=docker-compose
+  continuous-release-ui:
+    image: 'urbancode/velocity-se-continuous-release-ui:2.3.6.1'
+    restart: *restart-policy
+    logging: *ref_0
+    depends_on:
+      security-api:
+        condition: service_healthy
+    links:
+      - database
+      - rabbitnode1
+      - security-api
+    environment:
+      - PORT=3000
+      - 'ROOT_URL=${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/deploymentPlans'
+      - 'MONGO_URL=mongodb://database:27017'
+      - MONGO_DB=velocity
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - RABBITMQ_HOST=rabbitnode1
+      - RABBITMQ_PORT=5672
+      - 'RABBITMQ_USERNAME=${RABBITMQ_USER}'
+      - 'RABBITMQ_PASSWORD=${RABBITMQ_PASS}'
+      - 'APP_API_URL=http://application-api:3499'
+      - 'APP_API_AUTH_TOKEN=${API_TOKEN}'
+      - 'SECURITY_API_URL=http://security-api:3911/api'
+      - 'SECURITY_API_AUTH_TOKEN=${API_TOKEN}'
+      - 'REPORTING_CONSUMER_API_URL=http://reporting-consumer:6004'
+      - 'REPORTING_CONSUMER_API_AUTH_TOKEN=${API_TOKEN}'
+      - 'RELEASE_API_URL=http://release-events-api:8080/graphql'
+      - 'RELEASE_API_AUTH_TOKEN=${API_TOKEN}'
+      - 'MAP_API_URL=http://multi-app-pipeline-api:9090${MAP_API_PATH}/graphql'
+      - 'MAP_API_AUTH_TOKEN=${API_TOKEN}'
+      - 'JWT_HMAC_KEY=${HMAC_KEY}'
+      - 'CR_CIPHER_KEY=${CIPHER_KEY}'
+      - 'CR_HMAC_KEY=${HMAC_KEY}'
+      - 'CONNECT_URL=http://reporting-consumer:6004'
+      - 'CONNECT_TOKEN=${API_TOKEN}'
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+      - >-
+        AUTH_TOKEN_URL=https://login.ng.bluemix.net/UAALoginServerWAR/oauth/token
+      - 'DRA_API_URL=https://dra.ng.bluemix.net'
+      - 'TOOL_CHAINS_URL=https://devops-api.ng.bluemix.net'
+      - 'DEVOPS_MESSAGE_STORE_API=https://dlms.ng.bluemix.net'
+      - COLLECTION_LOCK_TIMEOUT=10000
+      - |
+        METEOR_SETTINGS=
+        {
+          "public": {
+            "requireAuth": true,
+            "securityAuthUrl": "${NGINX_PROTOCOL}://${NGINX_HOST}:${NGINX_PORT}/security-api/auth",
+            "SecurityApi": "http://security-api:3911",
+            "version": "2.3.6",
+            "features": {
+              "SlackTask": false,
+              "PipelineV2Task": false,
+              "EmailNotifications": true,
+              "EmailTask": true,
+              "RunAnotherPlanTask": true,
+              "Approvals": true,
+              "ApprovalTask": true,
+              "ServiceNowTask": true,
+              "JenkinsTask": true
+            }
+          }
+        }
+  rabbitnode1:
+    restart: *restart-policy
+    image: 'bitnami/rabbitmq:3.8.9'
+    logging: *ref_0
+    environment:
+      - RABBITMQ_ERL_COOKIE=128ad9b8-3d9f-11e8-b467-0ed5f89f718c
+      - 'RABBITMQ_USERNAME=${RABBITMQ_USER}'
+      - RABBITMQ_NODE_NAME=rabbit@localhost
+      - RABBITMQ_NODE_PORT_NUMBER=5672
+      - >-
+        RABBITMQ_HASHED_PASSWORD=TX473ySkefIlMuelJ/iNYLwSw/vZkVwscssdpdXgTDPinfT1
+      - RABBITMQ_DEFAULT_VHOST=/
+      - RABBITMQ_PLUGINS=rabbitmq_management
+      - NAMI_LOG_LEVEL=trace
+    hostname: rabbitnode1
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - 'http://localhost:15672/'
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - '15672:15672'
+      - '${RABBITMQ_PORT}:5672'
+    volumes:
+      - './conf/rabbit/:/bitnami/rabbitmq/conf'
+      - 'rabbit2:/bitnami'
+  multi-app-pipeline-api:
+    image: 'urbancode/velocity-se-multi-app-pipeline-api:2.3.6.1'
+    restart: *restart-policy
+    logging: *ref_0
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - '-f'
+        - 'http://localhost:9090/v1/multi-app-pipeline/status'
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      security-api:
+        condition: service_healthy
+    links:
+      - database
+      - rabbitnode1
+      - security-api
+      - continuous-release-ui
+    environment:
+      - NODE_ENV=container
+      - PORT=9090
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - 'mongo__url=mongodb://database:27017'
+      - mongo__db=multi-app-pipeline
+      - 'appPath=${MAP_API_PATH}'
+      - 'authToken=${API_TOKEN}'
+      - 'securityApi__url=http://security-api:3911'
+      - 'securityApi__auth_secret=${HMAC_KEY}'
+      - 'deployPlanApi__url=http://continuous-release-ui:3000/deploymentPlans'
+      - 'deployPlanApi__cipherKey=${CIPHER_KEY}'
+      - 'deployPlanApi__hmacKey=${HMAC_KEY}'
+      - 'applicationApi__url=http://application-api:3499'
+      - 'bearerToken=${API_TOKEN}'
+      - 'cipher__key=${CIPHER_KEY}'
+      - 'hmac__key=${HMAC_KEY}'
+      - 'registrationApi__token=${API_TOKEN}'
+      - 'integrationApi__token=${API_TOKEN}'
+      - 'pipelineApi__cipherKey=${CIPHER_KEY}'
+      - 'pipelineApi__hmacKey=${HMAC_KEY}'
+      - 'releaseEventsApi__cipherKey=${CIPHER_KEY}'
+      - 'releaseEventsApi__hmacKey=${HMAC_KEY}'
+      - 'releaseEventsApi__url=http://release-events-api:8080/graphql'
+      - amqp__velocity__host=rabbitnode1
+      - amqp__velocity__port=5672
+      - 'amqp__velocity__password=${RABBITMQ_PASS}'
+      - 'amqp__velocity__user=${RABBITMQ_USER}'
+      - amqp__applicationApiIds__host=rabbitnode1
+      - amqp__applicationApiIds__port=5672
+      - 'amqp__applicationApiIds__password=${RABBITMQ_PASS}'
+      - 'amqp__applicationApiIds__user=${RABBITMQ_USER}'
+      - newRelic__enabled=false
+      - redis__enabled=false
+      - tunnel__enabled=false
+      - serviceProvider__credentials=Y29udF9yZWxlYXNlX3N2Yzp0cDRNQk53TU0y
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
+  continuous-release-poller:
+    image: 'urbancode/velocity-se-continuous-release-poller:2.3.6.1'
+    restart: *restart-policy
+    logging: *ref_0
+    links:
+      - application-api
+    environment:
+      - PORT=3000
+      - 'LOG_LEVEL=${LOG_LEVEL}'
+      - 'MONGO_URL=mongodb://database:27017'
+      - MONGO_DB=velocity
+      - 'APP_API_TOKEN=${API_TOKEN}'
+      - 'APP_API_URL=http://application-api:3499'
+      - NODE_ENV=prod
+  rcl-web-client:
+    restart: *restart-policy
+    image: 'urbancode/velocity-se-rcl-web-client:2.2.0.52'
+    logging: *ref_0
+volumes:
+  mongodb:
+    driver: local
+  rabbit2:
+    driver: local
