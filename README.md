@@ -19,7 +19,7 @@ Se realizara la integración de este repositorio de github con UCV
 Roberto Chiabra Valera (Arquitecto de la cuenta IBM):
 
 Hugo Soto Durand (DevOPs Team in Telefonica )
-- Perosnal account Jira & GitHub, trabajando con VS, reviso en varios navegadores y las issues se salen de los circulos en los UI
+- Personal account Jira & GitHub, trabajando con VS, reviso en varios navegadores y las issues se salen de los circulos en los UI
 Gino Vergara (IBM Peru)
 Adolfo Rubatto Novak
 Daniel Cappon (DevOps Team - UCV)
