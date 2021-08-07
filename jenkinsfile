@@ -1,0 +1,64 @@
+node {
+
+    //URL to Github repository https://github.com/<owner>/<repo>
+    def GITHUB_REPO_URL="https://github.com/dmunoz166/ucv-integrations"
+    def GITHUB_BRANCH="main"
+    
+    //Retrieve ENV ID values for DEV and QA from "Download attributes from API" json file
+    def VELOCITY_ENV_ID_DEV="4e8fe634-41f9-4012-9db8-a3231b45a04b"
+    def VELOCITY_ENV_ID_QA="04735f6c-9f03-4695-85c9-d0270f368842"
+
+    //VELOCITY_APP_NAME must match your Velocity pipeline application name
+    def VELOCITY_APP_NAME="JKE App1"
+
+    //Do not change below this line.
+    def GIT_COMMIT
+    
+    stage ('cloning the repository'){
+      currentBuild.displayName = "2.1.1.${BUILD_NUMBER}"
+      majorVersion="${BUILD_NUMBER}"
+      def scm = git branch: "${GITHUB_BRANCH}", url: "${GITHUB_REPO_URL}"
+      GIT_COMMIT = sh(returnStdout: true, script: "git rev-parse HEAD").trim()
+      echo "GIT_COMMIT=${GIT_COMMIT}"
+    }
+    stage ("Build") {
+        echo "Building ${VELOCITY_APP_NAME} (Build:${currentBuild.displayName}, GIT_COMMIT:${GIT_COMMIT})"
+        step($class: 'UploadBuild', 
+           tenantId: "5ade13625558f2c6688d15ce",
+           revision: "${GIT_COMMIT}",
+           appName: "${VELOCITY_APP_NAME}",
+           versionName:"${currentBuild.displayName}",
+           requestor: "admin", id: "${currentBuild.displayName}"
+        )
+    }
+   stage ("Deploy to DEV") {
+    sleep 10
+    step([$class: 'UploadDeployment',
+          tenantId: "5ade13625558f2c6688d15ce",
+          versionName: "${currentBuild.displayName}",
+          versionExtId: "${currentBuild.displayName}",
+          type: 'Jenkins',
+          environmentId: "${VELOCITY_ENV_ID_DEV}",
+          environmentName: 'DEV',
+          appName: "${VELOCITY_APP_NAME}",
+          description: '[Description ex: Terraform Deployment]',
+          initiator: "admin",
+		  result: 'true'
+      ])
+   }
+   stage ("Deploy to QA") {
+    sleep 10
+    step([$class: 'UploadDeployment',
+          tenantId: "5ade13625558f2c6688d15ce",
+          versionName: "${currentBuild.displayName}",
+          versionExtId: "${currentBuild.displayName}",
+          type: 'Jenkins',
+          environmentId: "${VELOCITY_ENV_ID_QA}",
+          environmentName: 'QA',
+          appName: "${VELOCITY_APP_NAME}",
+          description: '[Description ex: Terraform Deployment]',
+          initiator: "admin",
+		  result: 'true'
+      ])
+   }
+}

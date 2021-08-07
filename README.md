@@ -18,9 +18,11 @@ Se realizara la integración de este repositorio de github con UCV
 ## Personas
 Roberto Chiabra Valera (Arquitecto de la cuenta IBM):
 
-Hugo Soto Durand (DevOPs Team in Telefonica )
-- Personal account Jira & GitHub, trabajando con VS, reviso en varios navegadores y las issues se salen de los circulos en los UI
-Gino Vergara (IBM Peru)
-Adolfo Rubatto Novak
-Daniel Cappon (DevOps Team - UCV)
 
+
+### Actividades Realizadas
+1. Conexión de UCV con Jira ( Van de la mano del vsm.json,Falta revisar por que algunos WIs "En curso" no se ven en la interfaz de ucv)
+2. Integración con Github (Se ven los PR y el estado de cada uno como cuadrados en ucv)
+3. Integración con Pipeline de Jenkins (Almenos como invocar UCV desde el pipeline para que se vea como se avanza en el despliegue, hace falta corregir pues no logre que jenkins recibiera el numero de la versión a desplegar desde ucv si no que hay que especificar desde el pipeline, se ven como triangulos en la interfaz)
+4. Integración con UCD (Se logro desplegar una snapshot de un proceso a partir de una app simple en UCD)
+5. Se logro realizar el despliegue desde UCD y el mismo UCV
